@@ -14,7 +14,7 @@ FROM registry.access.redhat.com/ubi8/openjdk-17:1.15-1.1682053058 AS builder
 # Build dependency offline to streamline build
 RUN mkdir project
 WORKDIR /home/jboss/project
-COPY pom.xml .
+COPY HelloWorld/pom.xml .
 RUN mvn dependency:go-offline
 
 COPY src src
