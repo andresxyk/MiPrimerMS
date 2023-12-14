@@ -1,37 +1,31 @@
-# springboot-maven3-centos
+####
+# This Dockerfile is used in order to build a container that runs the Spring Boot application
 #
-# This image provide a base for running Spring Boot based applications. It
-# provides a base Java 8 installation and Maven 3.
+# Build the image with:
+#
+# docker build -f docker/Dockerfile -t springboot/sample-demo .
+#
+# Then run the container using:
+#
+# docker run -i --rm -p 8081:8081 springboot/sample-demo
+####
+FROM registry.access.redhat.com/ubi8/openjdk-17:1.15-1.1682053058 AS builder
 
-FROM openshift/base-centos7
+# Build dependency offline to streamline build
+RUN mkdir project
+WORKDIR /home/jboss/project
+COPY pom.xml .
+RUN mvn dependency:go-offline
 
+COPY src src
+RUN mvn package -Dmaven.test.skip=true
+# compute the created jar name and put it in a known location to copy to the next layer.
+# If the user changes pom.xml to have a different version, or artifactId, this will find the jar
+RUN grep version target/maven-archiver/pom.properties | cut -d '=' -f2 >.env-version
+RUN grep artifactId target/maven-archiver/pom.properties | cut -d '=' -f2 >.env-id
+RUN mv target/$(cat .env-id)-$(cat .env-version).jar target/export-run-artifact.jar
+
+FROM registry.access.redhat.com/ubi8/openjdk-17-runtime:1.15-1.1682053056
+COPY --from=builder /home/jboss/project/target/export-run-artifact.jar  /deployments/export-run-artifact.jar
 EXPOSE 8080
-
-ENV JAVA_VERSON 1.8.0
-ENV MAVEN_VERSION 3.3.9
-
-LABEL io.k8s.description="Platform for building and running Spring Boot applications" \
-      io.k8s.display-name="Spring Boot Maven 3" \
-      io.openshift.expose-services="8080:http" \
-      io.openshift.tags="builder,java,java8,maven,maven3,springboot"
-
-RUN yum update -y && \
-  yum install -y curl && \
-  yum install -y java-$JAVA_VERSON-openjdk java-$JAVA_VERSON-openjdk-devel && \
-  yum clean all
-
-RUN curl -fsSL https://archive.apache.org/dist/maven/maven-3/$MAVEN_VERSION/binaries/apache-maven-$MAVEN_VERSION-bin.tar.gz | tar xzf - -C /usr/share \
-  && mv /usr/share/apache-maven-$MAVEN_VERSION /usr/share/maven \
-  && ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
-
-ENV JAVA_HOME /usr/lib/jvm/java
-ENV MAVEN_HOME /usr/share/maven
-
-# Add configuration files, bashrc and other tweaks
-COPY ./s2i/bin/ $STI_SCRIPTS_PATH
-
-RUN chown -R 1001:0 ./
-USER 1001
-
-# Set the default CMD to print the usage of the language image
-CMD $STI_SCRIPTS_PATH/usage
+ENTRYPOINT ["/opt/jboss/container/java/run/run-java.sh", "--server.port=8080"]
